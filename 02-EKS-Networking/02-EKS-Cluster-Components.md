@@ -1,5 +1,36 @@
 # EKS Cluster Components 
 
+```mermaid 
+flowchart TD
+    subgraph ControlPlane["EKS Control Plane (Managed by AWS)"]
+        CP["API Server / Scheduler / Controller Manager"]
+    end
+
+    subgraph VPC["VPC"]
+        subgraph SubnetA["Subnet A"]
+            ENI1["ENI #1\nPrimary IP + Secondary IPs"]
+            Pod1["Pod 1"]
+            Pod2["Pod 2"]
+        end
+
+        subgraph SubnetB["Subnet B"]
+            ENI2["ENI #2\nSecondary IPs"]
+            Pod3["Pod 3"]
+            Pod4["Pod 4"]
+        end
+    end
+
+    Node["Worker Node (EC2 Instance)"]
+
+    CP --> Node
+    Node --> ENI1
+    Node --> ENI2
+    ENI1 --> Pod1
+    ENI1 --> Pod2
+    ENI2 --> Pod3
+    ENI2 --> Pod4
+```
+
 ## Control Plane (Fully Managed by AWS)
 ### Fully Managed and Abstracted 
 - You cannot see or manage EC2 instances for the control plane.

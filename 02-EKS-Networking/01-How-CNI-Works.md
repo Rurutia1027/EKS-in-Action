@@ -1,5 +1,9 @@
 # How CNI Works in EKS 
 
+CNI = Container Network Interface -> A Kubernetes plugin that handles pod networking. 
+
+In AWS EKS with the **AWS VPC CNI** plugin, the CNI essentially uses **ENIs and their IPs to provide network connectivity to pods.**
+
 ## ENIs in EKS 
 - **Control Plane ENIs**: Managed by AWS EKS, live inside private subnets, connect to Kubernetes API servers. 
 - **Worker Node ENIs**: Belong to your EC2 instance (nodes) running workloads (Pods).

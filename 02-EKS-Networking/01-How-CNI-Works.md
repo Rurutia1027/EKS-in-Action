@@ -1,8 +1,54 @@
-# How CNI Works
+# How CNI Works in EKS 
 
-## VPC Content 
+## ENIs in EKS 
+- **Control Plane ENIs**: Managed by AWS EKS, live inside private subnets, connect to Kubernetes API servers. 
+- **Worker Node ENIs**: Belong to your EC2 instance (nodes) running workloads (Pods).
+- **Unattached ENIs**: Might be leftover from scaling events, node replacement, or pending attachment. 
 
-### Get EKS VPC Info 
+## What an ENI really is in AWS/EKS 
+
+- The subnet is just an IP pool + AZ location (metadata).
+- The **ENI** lives inside a single subnet and "borrows" IPs from it (IP Pool/Subnet).
+- The Worker Node gets network access through the ENI(s) attached to it. 
+
+### Relationships of VPC & ENI & EKS's Worker Node(EC2 Instance)
+
+**VPC:Subnets => 1:N, ENI:Subnets(CIDR) => 1:1; (EKS)Worker Node : ENI => 1:N;  Each ENI belongs to exactly subnet. That subnet has a range of available IP addresses, and the ENI can take one primary + multiple secondary IPs from that pool. Each Worker Node can have one to multiple ENI(s).**
+
+Worker Node (EC2 instance) doesn't **"own"** a subnet directly. 
+The relationship works like this: 
+
+```
+VPC
+ └── Subnet (IP range)
+      └── ENI (Elastic Network Interface)
+           └── Attached to Worker Node
+```
+
+
+```
+ENI-12345  →  Subnet-abcde (192.168.128.0/19)
+             ├── Primary IP: 192.168.128.48
+             ├── Secondary IP: 192.168.128.49
+             ├── Secondary IP: 192.168.128.50
+             └── ...
+```
+
+- **ENI** = Elastic Network Interface -> a virtual network card for an EC2 instance (including EKS worker nodes).
+- One **ENI** is always tied to exactly one subnet. 
+- One **ENI** can have: 
+> One primary private IPv4(required)
+> Multiple secondary private IPv4s (depending on instance type)
+> Optionally one public IPv4 (if in public subnet or NAT config)
+> IPv6 addresses if enabled. 
+
+
+## EKS Context 
+
+
+
+## Get EKS VPC Output Content 
+
 ```bash 
 $ eksdemo get vpc
 +-----------------------+--------------------------------------+--------------------------------------+-----------------+-------------+
@@ -32,7 +78,7 @@ IPv6 address range (if assigned). Here, it's -- because no IPv6 range is set.
 Default AWS-provided VPC in each region; automatically created. 
 
 
-## Subnet Content 
+## Get EKS Subnet Output Content 
 
 ```bash 
 $ eksdemo get subnets
@@ -69,55 +115,66 @@ Number of available IP addresses left in the subnet for resource allocation (pod
 IPv6 range for the subnet; here all are -- (no IPv6 configured). 
  
 
+## Get EKS network-interface Output Content 
+
+```bash
+$ eksdemo get network-interface
++-----------------------+----------------------+-------------------+-------------------+--------------------+--------------------------+
+| Network Interface Id  | Attached Instance Id | Private IPv4 IPs  | Subnet Id         | Security Groups    | Description              |
++-----------------------+----------------------+-------------------+-------------------+--------------------+--------------------------+
+| eni-00e9e764699ac1660  | i-016c278ff300ec74b  | 192.168.128.48    | subnet-01c03526c3f1b6af6 | sg-xxxxxxx   | eks_control_plane         |
+| eni-0a671da155a4e7c6a  | i-016c278ff300ec74b  | 192.168.141.232   | subnet-01c03526c3f1b6af6 | sg-xxxxxxx   | Secondary interface       |
+| *eni-067f3789c01231e63 | i-016c278ff300ec74b  | 192.168.132.239   | subnet-01c03526c3f1b6af6 | sg-xxxxxxx   | Primary network interface |
+| eni-0e8fb35f8a29f6d35  | i-01686ab1adf9299f3  | 192.168.175.28    | subnet-0a6e36a22dfe64a3a | sg-xxxxxxx   | Worker node               |
+| eni-0a2ee2424b0d3f1a2  | i-01686ab1adf9299f3  | 192.168.19.171    | subnet-0ea8d9460384a28ec | sg-xxxxxxx   | Worker node               |
+| eni-0b6920863c674eae7  | -                    | -                 | subnet-0985f0fac4aa78207 | sg-xxxxxxx   | Unattached / Available    |
++-----------------------+----------------------+-------------------+-------------------+--------------------+--------------------------+
+* Indicates Primary network interface
+```
 
 
+### `eksdemo get network-interface` Output Explanation 
+####  **Network Interface Id(ENI)**
+- Stands for Elastic Network Interface in AWS 
+- Each ENI is a virtual network card attached to an EC2 instance (in this case, EKS control plane or worker node).
+- Example: `eni-00e9e764699ac1660`
 
 
+#### **Attached Instance Id**
+- The EC2 instance (either EKS control plane or worker node) to which the ENI is attached. 
+- If this field is blank, the ENI is unattached and available for future use/allocate. 
+
+#### Private IPv4 IPs
+- The private IP address assigned to this network interface inside the VPC.
+- Example: `192.168.128.48` is reachable only inside the VPC.
+- Some ENIs can have **multiple IPs** for services or load balancers. 
+
+### Subnet Id
+- The subnet where the ENI lives. 
+- Determines the IP range available to the ENI. 
+- Example: `subnet-01c03526c3f1b6af6`.
+
+### Security Groups 
+- Firewall rules attached to this ENI.
+- Controls inbound and outbound network traffic. 
 
 
+### Description 
+
+AWS description field. Often set by EKS to indicate purpose: 
+- `eks_control_plane`: Used by the EKS master/control plane. 
+- `worker node`: Belongs to EC2 nodes running pods. 
+- `unattached`: ENI is created but not in use. 
+
+**before ENI** -> Makes it as the primary network interface for that EC2 instances. 
 
 
-
-----
-
-## What's CNI ? 
-
-CNI stands for Container Network Interface. It's a specification and a set of libraries for configuring network interfaces in Linux containers. In Kubernetes, CNI plugins are used to provide networking for pods -- assigning IPs, routing traffic, and enabling communicaiton. 
-
-## How CNI Works in EKS (Amazon Elastic Kubernetes Service)
-
-- Amazon EKS uses Amazon VPC CNI Plugin as its default networking plugin. 
-- This plugin allows Kubernetes pods to have IP addresses from the VPC subsets (the same IP range your AWS EC2 instances use).
-- Pods are treated as first-class network entities in your VPC, with their own routable IP addresses. 
-
-## Key Points About AWS VPC CNI Plugin:
-### Pod IP assignment 
-- When a pod is created, the VPC CNI plugin allocates an Elastic Network Interface (ENI) from the VPC. 
-- The ENI is attached to the EC2 instance node. 
-- Each pod gets an IP address from the VPC subnet. 
-
-### Networking 
-- Pods can communicate directly with other pods, services, or AWS resoruces within the VPC using standard VPC routing. 
-- This allows seamless integration between Kubernentes workloads and AWS services. 
-
-### Scalability 
-- Each EC2 instance has a limit on how many ENIs and IPs it can have. 
-- The CNI plugin manages pod IP assignment based on those limits. 
-- If an instance runs out of free IPs, new pods can't be scheduled on that node. 
-
-### Performance & Security 
-- Using VPC native networking means low latency and high throughput.
-- You can apply VPC security groups and network ACLs to pods indirectly via their ENIs
+### Key Notes
+Primary vs. Secondary ENIs
+- Primary ENI -> Required for EC2 instance networking; can't be detached. 
+- Secondary ENI -> Used for extra IPs, load balancers, or pod networking. 
 
 
-## Why VPC & CNI Important ? 
-Pods have native AWS VPC IPs, which means they can: 
-- Use AWS security features easily.
-- Avoid NAT or overlay networks (like Flannel or Calico's overlays)
-- Have consistent IP reachability within the VPC
-
-
-## Summary 
-- CNI in EKS is an AWS VPC-aware networking plugin. 
-- It assigns real VPC IPs to pods by attaching ENIs to nodes. 
-- This provides high-performance, secure, and seamless pod networking integrated wiht AWS infrastructure. 
+Why EKS has many ENIs
+- Each EKS worker node often gets multiple ENIs for pods to have dedicated IPs.
+- The control plane has its own ENIs for API and internal communication. 

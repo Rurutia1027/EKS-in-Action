@@ -47,10 +47,6 @@ ENI-12345  →  Subnet-abcde (192.168.128.0/19)
 > IPv6 addresses if enabled. 
 
 
-## EKS Context 
-
-
-
 ## Get EKS VPC Output Content 
 
 ```bash 
@@ -119,6 +115,9 @@ Number of available IP addresses left in the subnet for resource allocation (pod
 IPv6 range for the subnet; here all are -- (no IPv6 configured). 
  
 
+
+---  
+
 ## Get EKS network-interface Output Content 
 
 ```bash
@@ -182,3 +181,132 @@ Primary vs. Secondary ENIs
 Why EKS has many ENIs
 - Each EKS worker node often gets multiple ENIs for pods to have dedicated IPs.
 - The control plane has its own ENIs for API and internal communication. 
+
+
+--- 
+## Get EKS Nodes Output Content 
+### `k get no ` Output Explanation 
+```bash 
+$ kubectl get no
++-----------------------------------------------+
+| NAME                                          |
++-----------------------------------------------+
+| i-01686ab1adf9299f3.us-west-2.compute.internal |
+| i-016c278ff300ec74b.us-west-2.compute.internal |
++-----------------------------------------------+
+```
+
+### Output Concepts & Explanation 
+#### Node(no)
+- In Kubernetes, a Node represents a worker machine that runs pods. 
+- In EKS, a Node is typically an EC2 instance you launch (or AWS-managed node group launch) to run workloads. 
+
+
+#### Node Name 
+- The name here corresponds to the **EC2 instance ID + region domain**
+> `i-01686ab1adf9299f3.us-west-2.compute.internal`
+- This naming convention shows: 
+> `i-xxxxxxxxxxxx` -> EC2 instance ID.
+> `us-west-2` -> AWS region. 
+> `.compute.internal` -> internal DNS suffix in the VPC. 
+
+
+#### Role of Worker Nodes in EKS
+- Each Node runs `kubectl(agent)`, which registers it to the Kubernetes API server ( in the control plane)
+- Nodes provides compute resources (CPU, memory, network) for pods. 
+
+#### Network Context
+- Each Node will have **ENIs** attached (from subsets) for networking. 
+- Pods scheduled on the node get **IP addresses from the node's ENIs**, managed by the AWS VPC CNI plugin. 
+
+#### High-level Mapping 
+
+```
+EC2 Node (Worker) --> ENI(s) --> Pod(s) --> IP(s)
+```
+
+--- 
+
+## Get EKS Pods Output Content 
+
+### `k get po -o wide -A ` 
+
+```bash 
+> k get po -o wide -A # kubecto get pods -o wide (show all column descs) -A (all namespace)
+
++------------+--------------------------+-------+---------+----------+------+----------------+-------------------------------------------+----------------+----------------+
+| NAMESPACE  | NAME                     | READY | STATUS  | RESTARTS | AGE  | IP             | NODE                                      | NOMINATED NODE | READINESS GATES|
++------------+--------------------------+-------+---------+----------+------+----------------+-------------------------------------------+----------------+----------------+
+| kube-system| aws-node-gmzp6           | 2/2   | Running | 0        | 42m  | 192.168.175.28 | i-01686ab1adf9299f3.us-west-2.compute.internal | <none>         | <none>         |
+| kube-system| aws-node-z7llk           | 2/2   | Running | 0        | 42m  | 192.168.132.239| i-016c278ff300ec74b.us-west-2.compute.internal | <none>         | <none>         |
+| kube-system| coredns-7864b4f64c-9g8hf| 1/1   | Running | 0        | 49m  | 192.168.130.28 | i-016c278ff300ec74b.us-west-2.compute.internal | <none>         | <none>         |
+| kube-system| coredns-7864b4f64c-zzm7f| 1/1   | Running | 0        | 49m  | 192.168.154.13 | i-016c278ff300ec74b.us-west-2.compute.internal | <none>         | <none>         |
+| kube-system| kube-proxy-2tv5p         | 1/1   | Running | 0        | 42m  | 192.168.x.x    | i-016c278ff300ec74b.us-west-2.compute.internal | <none>         | <none>         |
+| kube-system| kube-proxy-89r24         | 1/1   | Running | 0        | 42m  | 192.168.x.x    | i-01686ab1adf9299f3.us-west-2.compute.internal | <none>         | <none>         |
++------------+--------------------------+-------+---------+----------+------+----------------+-------------------------------------------+----------------+----------------+
+```
+
+### EKS `k get po -o wide -A` Output Content Explanation 
+- **NAMESPACE** -> Pod namespace (kube-system for system pods)
+- **NAME** -> Pod name; e.g., {aws-node, coredns, kube-proxy}
+- **READY** -> Containers ready / total containers. 
+- **STATUS** -> Pod status (Running, Pending, etc.).
+- **RESTARTS** -> Number of container restarts. 
+- **AGE** -> How long pod has been running.
+- **IP** -> Pod IP allocated from ENI/Subnet of the Worker Node(EC2 Instance). 
+- **NODE** -> EC2 instance (worker node) hosting the pod. 
+- **NOMINATED NODE** -> For preemption/disruption scheduling (usually <none>).
+- **READINESS GATES** -> Extra readiness checks beyond container probes (usually <none>). 
+
+### Cluster Insights from This Table 
+- **2 Worker Nodes**: {i-01686ab1adf9299f3 and i-016c278ff300ec74b}
+- **aws-node Pods**: Each node has one, managing ENIs and pod IP allocation (VPC CNI plugin).
+- **CoreDNS Pods**: Cluster DNS for pods; spread across nodes. 
+- **kube-proxy Pods**: Networking for service traffic across nodes. 
+- **Pod IPs**: Come from **subnet pools**, assigned by the CNI plugin. 
+- **Control Plane**: Managed by AWS, not visible here. 
+
+
+## Diagrams & Explanation 
+```mermaid
+graph TD
+  subgraph Worker Nodes
+    Node1[i-01686ab1adf9299f3] 
+    Node2[i-016c278ff300ec74b]
+  end
+
+  subgraph ENIs
+    ENI1[ENI-1: 192.168.175.0/19]
+    ENI2[ENI-2: 192.168.132.0/19]
+  end
+
+  subgraph Pods_Node1
+    aws_node_gmzp6["aws-node-gmzp6\nIP: 192.168.175.28"]
+    kube_proxy_89r24["kube-proxy-89r24\nIP: 192.168.x.x"]
+  end
+
+  subgraph Pods_Node2
+    aws_node_z7llk["aws-node-z7llk\nIP: 192.168.132.239"]
+    coredns_9g8hf["coredns-7864b4f64c-9g8hf\nIP: 192.168.130.28"]
+    coredns_zzm7f["coredns-7864b4f64c-zzm7f\nIP: 192.168.154.13"]
+    kube_proxy_2tv5p["kube-proxy-2tv5p\nIP: 192.168.x.x"]
+  end
+
+  Node1 --> ENI1
+  Node2 --> ENI2
+
+  ENI1 --> aws_node_gmzp6
+  ENI1 --> kube_proxy_89r24
+
+  ENI2 --> aws_node_z7llk
+  ENI2 --> coredns_9g8hf
+  ENI2 --> coredns_zzm7f
+  ENI2 --> kube_proxy_2tv5p
+```
+
+
+### Explanation 
+- **Worker Nodes** -> Your EC2 Instances running pods.
+- **ENIs** -> Network Interfaces attaches to nodes(EC2 instances), one ENI per one subnet. Pods borrows IPs from IP Pool(subnet) via ENIs, and subnet is a collection of metadata of (IP address + AZ Infos) can be attached only one ENIs. Node fetch/borrow idle ips from subnet via ENIs. 
+- **Pods** -> Each pod has an IP assigned from the ENI's subnet. 
+- **IP assignment** -> managed by AWS VPC CNI plugin. 

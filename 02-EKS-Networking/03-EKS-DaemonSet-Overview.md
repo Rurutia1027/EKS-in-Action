@@ -116,7 +116,7 @@ Volumes:
 - Ensures one copy of the aws-node pod runs on each worker node. 
 - Provides the VPC CNI networking functionality for pods. 
 
-### Node Scheduling & Status 
+### Node Scheduling & Status
 - Desired Nodes Scheduled: 2 -> two worker nodes in the cluster
 - Current Nodes Scheduled: 2 -> each node ahs the aws-node pod running
 - Pods Status: 2 Running -> all networking pods are healthy.
@@ -164,3 +164,45 @@ Worker Node (EC2 instance)
 - The `aws-node` pods are critical **EKS pod networking**
 - They ensure pods can communicate using **VPC-native IPs**
 - Scaling nodes or pods triggers **ENI allocation automatically**
+
+
+--- 
+
+## `aws-vpc-cni` Container Logs
+- EKS `aws-vpc-cni-init` container logs 
+
+```bash 
+# View logs for the aws-vpc-cni-init container 
+kubectl logs -n kube-system aws-node-z7llk -c aws-vpc-cni-init 
+
+
+time="2024-02-05T05:55:00Z" level=info msg="Copying CNI plugin binaries ..."
+
+# Copies the AWS VPC CNI plugin binaries into the host's CNI directory
+# These binaries are executed by kubelet to assign Pod IPs and configure network routes. 
+
+
+time="2024-02-05T05:55:00Z" level=info msg="Copied all CNI plugin binaries to /host/opt/cni/bin"
+# Successfully placed CNI binaries into /opt/cni/bin on the host.
+# The host's kubelet will call these plugins when creating Pods
+
+time="2024-02-05T05:55:00Z" level=info msg="Found primaryMAC 06:cb:7e:3b:e4:d3"
+# Deleted the MAC address of the Node's primary network interface (Primary ENI).
+# This is the main network card assigned to the EC2 instance.
+
+time="2024-02-05T05:55:00Z" level=info msg="Found primaryIF eth0"
+# Confirmed that the primary ENI is mapped to the eth0 interface
+# By default, AWS maps the primary ENI to eth0
+
+time="2024-02-05T05:55:00Z" level=info msg="Updated net/ipv4/conf/eth0/rp_filter to 2"
+# Adjusted Reverse Path Filtering (rp_filter) to value 2 (loose mode).
+# Loose mode allows asymmetric routing so cross-sunet and VPC Pod traffic won't be dropped. 
+
+time="2024-02-05T05:55:00Z" level=info msg="Updated net/ipv4/tcp_early_demux to 1"
+# Enabled TCP Early Demux, which speeds up TCP packet handling by routing packets faster to the correct sockets.
+
+time="2024-02-05T05:55:00Z" level=info msg="CNI init container done"
+# The init container finished its setup tasks.
+# The main aws-node container now takes over IP address management and ongoing network configuration.
+```
+

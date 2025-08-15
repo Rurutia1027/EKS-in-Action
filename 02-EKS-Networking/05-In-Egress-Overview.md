@@ -123,35 +123,13 @@ Goes from **Pod -> external IP/Port**. Examples:
 - **Node IP (primary IP from ENIs)**: Receives the traffic for pods; {ENI primary IP}. 
 
 
-## Summary 
+## Conclusions  
 - **Pods** in EKS are **first-class citizens in the VPC** because they use ENI seconary IPs.
 - **Ingress** comes in through VPC -> subnet `<where attached to one or more security groups and security rules locates/works>` -> ENI -> pod. 
 - **Egress** leaves from pod -> ENI -> subnet -> VPC gateway -> internet. 
 - Security, routing, and IP management are all handled at the **AWS VPC level**, not just Kubernetes. 
 
 
-```mermaid
-flowchart LR
-    Client[Client / External Traffic] -->|Ingress| VPC[VPC]
-    VPC --> Subnet[Subnet]
-    Subnet --> ENI1[ENI 1]
-    Subnet --> ENI2[ENI 2]
-
-    ENI1 --> SG1[SG Rules for ENI1]
-    ENI2 --> SG2[SG Rules for ENI2]
-
-    SG1 --> Node1[Node (EC2)]
-    SG2 --> Node2[Node (EC2)]
-
-    Node1 --> Pod1[Pod]
-    Node2 --> Pod2[Pod]
-
-    Pod1 -->|Egress| Node1
-    Pod2 -->|Egress| Node2
-
-    Node1 --> ENI1
-    Node2 --> ENI2
-```
 
 
 --- 

@@ -116,7 +116,6 @@ Goes from **Pod -> external IP/Port**. Examples:
 > **Route tables** for routing to internet/NAT
 
 
-
 ## Key Relationships 
 - **Ingress**: Incoming traffic to pods; associated with AWS Resources {VPC subnets, Security Groups, Load Balancers, ENIs}.
 - **Egress**: Outgoing traffic from pods; associated with AWS Resources {ENIs, Subnet route tables, NAT/IGW, Security Groups}.
@@ -130,19 +129,74 @@ Goes from **Pod -> external IP/Port**. Examples:
 - **Egress** leaves from pod -> ENI -> subnet -> VPC gateway -> internet. 
 - Security, routing, and IP management are all handled at the **AWS VPC level**, not just Kubernetes. 
 
+
 ```mermaid
 flowchart LR
     Client[Client / External Traffic] -->|Ingress| VPC[VPC]
     VPC --> Subnet[Subnet]
-    Subnet --> ENI[ENI (Network Interface)]
-    ENI --> SG[Security Group Rules]
-    SG --> Node[Node (EC2)]
+    Subnet --> ENI1[ENI 1]
+    Subnet --> ENI2[ENI 2]
+    ENI1 --> SG1[Security Group Rules]
+    ENI2 --> SG2[Security Group Rules]
+    SG1 --> Node[Node (EC2)]
+    SG2 --> Node
+
     Node --> Pod[Pod]
 
     Pod -->|Egress| Node
-    Node --> SG
-    SG --> ENI
-    ENI --> Subnet
+    Node --> ENI1
+    Node --> ENI2
+    ENI1 --> SG1
+    ENI2 --> SG2
+    SG1 --> Subnet
+    SG2 --> Subnet
     Subnet --> VPC
     VPC --> Client
+```
+
+
+--- 
+
+# Ingress & Egress with Security Groups / Security Rules in AWS 
+## Security Groups -> ENIs
+- Security groups are **attached to ENIs**, not directly to subnets or VPCs.
+- An ENI can have **multiple security groups** (many-to-one), which means one ENI can be attached to multiple security rules defined from different security groups -- but all those security groups should belong to the current VPC cross VPC security groups attaching is denied(security groups only work in one VPC across VPC is not allowed). 
+- The **rules from all attached security groups** are applied to traffic going in/out that ENI (in traffic attach to pod internal is ingress, egress is out going traffic through similar security rules from security groups that attaching to the ENIs). 
+
+## VPC & Security Groups 
+- When we create a VPC, we defines **a set of security groups within that VPC**. 
+- Only **security groups created in that VPC** can be attached to ENIs in that VPC. 
+- So the VPC acts as a **namespace** for security groups. 
+
+## Rules effectiveness
+- Security group rules **only take effect whent he SG is actually attached to an ENI**.
+- Even if you create multiple SGs in the VPC, they **don't enforce anything** until they are attached to the ENIs(ENI is subnet proxies, so SG -> attached to ENI -> SG rules work on all IPs in that IP Pool(subnet)). 
+
+--- 
+
+# Summary 
+**Ingress** in the context of AWS/EKS/Kubernetes is about **incoming traffic to a resource{node, pod, or services}**.
+
+- **Ingress** = **incoming traffic**
+> At the **VPC/ENI** level, ingress traffic is **any traffic coming to the ENI**.
+> Whether it's allowed or blocked depends on **security group rules** attached to the ENI.
+
+- **Security groups** = **rules applied to ingress/egress**
+> Security groups are **not ingress themselves**, but **they control how ingress and egress traffic is allowed**. 
+> You can have mulitple security groups on an ENI; all their rules are combined. 
+
+- **Ingress in Kubernetes**
+> At the **pod/service level**, ingress can also be defined via **Kubernetes NetworkPolicies or ingress resources**.
+> Kubernetes ingress controls traffic **at the applicaiton layer L7 (HTTP/S, routing, port, path)**, not just network connectivity. 
+
+
+## In NutShell 
+- ENI is attached to the Node. 
+- An ENI has {primay IP(main IP of the Node), secondary IPs(used for Pods via AWS CNI)}.
+- Security Groups (SGs) can be attached to the ENI. 
+- The **rules of the SGs apply to all IPs(primay & secondary) on that ENI**, including both primary and secondary IPs. 
+- Multiple ENIs can be attached to a single Node, each with its own set of SGs. 
+
+```
+Client -> VPC -> Subnet -> ENI -> Security Group rules -> Node -> Pod
 ```

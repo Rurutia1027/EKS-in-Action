@@ -1,4 +1,4 @@
-# K8S Ingress and Egress Overview 
+# EKS & K8S Ingress and Egress Overview 
 
 ## Basic Definitions
 

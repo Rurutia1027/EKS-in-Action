@@ -78,7 +78,7 @@ Goes from **Pod -> external IP/Port**. Examples:
 > That means the pod's network traffic is **native to the VPC**, making ingress/egress fully trackable with standard AWS networking. 
 
 
-## ENIs (Elastic Network Interfaces)
+## ENIs (Elastic 2s)
 - **Worker node ENI**: Each EC2 instance has a primary ENI with a main IP.
 - **Pod ENIs**: Using AWS VPC CNI, pods get **seconary IPs on t the node ENI**.
 - Implication for traffic: 
@@ -136,22 +136,21 @@ flowchart LR
     VPC --> Subnet[Subnet]
     Subnet --> ENI1[ENI 1]
     Subnet --> ENI2[ENI 2]
-    ENI1 --> SG1[Security Group Rules]
-    ENI2 --> SG2[Security Group Rules]
-    SG1 --> Node[Node (EC2)]
-    SG2 --> Node
 
-    Node --> Pod[Pod]
+    ENI1 --> SG1[SG Rules for ENI1]
+    ENI2 --> SG2[SG Rules for ENI2]
 
-    Pod -->|Egress| Node
-    Node --> ENI1
-    Node --> ENI2
-    ENI1 --> SG1
-    ENI2 --> SG2
-    SG1 --> Subnet
-    SG2 --> Subnet
-    Subnet --> VPC
-    VPC --> Client
+    SG1 --> Node1[Node (EC2)]
+    SG2 --> Node2[Node (EC2)]
+
+    Node1 --> Pod1[Pod]
+    Node2 --> Pod2[Pod]
+
+    Pod1 -->|Egress| Node1
+    Pod2 -->|Egress| Node2
+
+    Node1 --> ENI1
+    Node2 --> ENI2
 ```
 
 
